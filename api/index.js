@@ -2,11 +2,12 @@ import express from "express";
 import crypto from "crypto";
 import { SignerV4 } from "@volcengine/openapi";
 
-export const config = { runtime: 'nodejs22.x' };
+// 修复：运行时版本与Vercel配置统一为nodejs20.x
+export const config = { runtime: 'nodejs20.x' };
 
 const app = express();
 
-/** 即梦4.0 API配置（修正后） */
+/** 即梦4.0 API配置 */
 const HOST = "api.jimeng.ai";
 const REGION = "cn-north-1";
 const SERVICE = "jimeng";
@@ -67,6 +68,12 @@ async function signAndForward(bodyObj = {}) {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
+
+    // 新增：检查API响应状态码
+    if (!resp.ok) {
+      throw new Error(`API请求失败: ${resp.status} ${resp.statusText}\n响应内容: ${await resp.text()}`);
+    }
+
     return { status: resp.status, text: await resp.text() };
   } catch (e) {
     clearTimeout(timeoutId);
