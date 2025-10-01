@@ -1,5 +1,14 @@
 {
   "version": 2,
-  "functions": { "api/**/*.js": { "runtime": "nodejs20.x" } },
-  "routes": [{ "src": "/api/(.*)", "dest": "/即梦4.0 API代理服务完整修正代码.js" }]
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.15.x"
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/即梦4.0 API代理服务完整修正代码.js"
+    }
+  ]
 }
