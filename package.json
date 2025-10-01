@@ -3,9 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "20.x" },
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "express": "^4.18.2",
     "@volcengine/openapi": "1.32.0"
+  },
+  "scripts": {
+    "start": "node 即梦4.0 API代理服务完整修正代码.js",
+    "dev": "nodemon 即梦4.0 API代理服务完整修正代码.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   }
 }
