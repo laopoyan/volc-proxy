@@ -1,99 +1,98 @@
-export const config = { runtime: 'nodejs22.x' };
-// api/index.js
 import express from "express";
 import crypto from "crypto";
-import { Signer } from "@volcengine/openapi";
+import { SignerV4 } from "@volcengine/openapi";
+
+export const config = { runtime: 'nodejs22.x' };
 
 const app = express();
 
-/** 即梦视觉固定参数 */
-const HOST = "visual.volcengineapi.com";
+/** 即梦4.0 API配置（修正后） */
+const HOST = "api.jimeng.ai";
 const REGION = "cn-north-1";
-const SERVICE = "cv";
-const VERSION = "2022-08-31";
+const SERVICE = "jimeng";
+const PATHNAME = "/v1/images/generations";
+const ACTION = "GenerateImage";
+const VERSION = "2024-01-01";
 
-/** 解析 JSON + 简单限流 */
+/** 中间件配置 */
 app.use(express.json({ limit: "2mb" }));
-
-/** 允许跨域（便于本地/前端调试，可按需删除） */
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.sendStatus(200);
-  next();
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Date,X-Content-Sha256");
+  req.method === "OPTIONS" ? res.sendStatus(200) : next();
 });
+app.disable("x-powered-by");
 
-/** 健康检查 */
-app.get("/", (_req, res) => {
-  res.send("volc-proxy is running. Use POST /api/visual-submit or /api/visual-result");
-});
-app.get("/api", (_req, res) => {
-  res.send("OK");
-});
+/** 健康检查路由 */
+app.get("/", (_req, res) => res.send("即梦4.0 API代理服务运行中"));
+app.get("/api", (_req, res) => res.send("OK"));
 
-/** 核心：签名并转发到火山引擎 */
-async function signAndForward(action, bodyObj = {}) {
+/** 签名与转发核心函数 */
+async function signAndForward(bodyObj = {}) {
   const accessKeyId = process.env.VOLC_ACCESS_KEY_ID;
   const secretAccessKey = process.env.VOLC_SECRET_ACCESS_KEY;
-
+  
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error("Missing VOLC_ACCESS_KEY_ID or VOLC_SECRET_ACCESS_KEY envs");
+    throw new Error("环境变量 VOLC_ACCESS_KEY_ID 或 VOLC_SECRET_ACCESS_KEY 未设置");
   }
 
   const body = JSON.stringify(bodyObj);
   const xContentSha256 = crypto.createHash("sha256").update(body).digest("hex");
-
+  
   const request = {
     region: REGION,
     method: "POST",
-    pathname: "/",
+    pathname: PATHNAME,
+    query: { Action: ACTION, Version: VERSION },
     headers: {
-      Host: HOST,
-      Accept: "application/json",
       "Content-Type": "application/json; charset=utf-8",
       "X-Content-Sha256": xContentSha256
     },
     body
   };
 
-  const signer = new Signer(request, SERVICE);
-  signer.addAuthorization({
-    accessKeyId,
-    secretKey: secretAccessKey
-  });
+  const signer = new SignerV4(request, SERVICE);
+  signer.addAuthorization({ accessKeyId, secretKey: secretAccessKey });
 
-  const url = `https://${HOST}/?Action=${encodeURIComponent(action)}&Version=${VERSION}`;
-  const resp = await fetch(url, { method: "POST", headers: request.headers, body });
-  const text = await resp.text();
-  return { status: resp.status, text };
+  const url = `https://${HOST}${PATHNAME}?${new URLSearchParams(request.query).toString()}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: request.headers,
+      body,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return { status: resp.status, text: await resp.text() };
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
 }
 
-/** 提交任务 */
+/** 文生图任务提交路由 */
 app.post("/api/visual-submit", async (req, res) => {
   try {
-    const { status, text } = await signAndForward("CVSync2AsyncSubmitTask", req.body);
+    const { status, text } = await signAndForward(req.body);
     res.status(status).send(text);
   } catch (e) {
-    res.status(500).json({ message: "proxy error", error: String(e) });
+    console.error("提交任务错误:", e);
+    res.status(500).json({ 
+      message: "代理服务错误", 
+      error: String(e),
+      stack: process.env.NODE_ENV === "development" ? e.stack : undefined
+    });
   }
 });
 
-/** 查询结果 */
-app.post("/api/visual-result", async (req, res) => {
-  try {
-    const { status, text } = await signAndForward("CVSync2AsyncGetResult", req.body);
-    res.status(status).send(text);
-  } catch (e) {
-    res.status(500).json({ message: "proxy error", error: String(e) });
-  }
-});
+/** 兜底路由 */
+app.use((_req, res) => res.status(404).json({ message: "接口不存在" }));
 
-/** 兜底路由（可选） */
-app.use((req, res) => {
-  res.status(404).json({ message: "Not Found" });
-});
-
-/** Vercel 导出处理函数 */
+/** Vercel处理函数导出 */
 export default function handler(req, res) {
   return app(req, res);
 }
